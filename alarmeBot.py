@@ -13,10 +13,11 @@
 # modules complémentaires
 import os
 import sys
+import sqlite3
 from re import compile as reCompile
-from datetime import datetime, timedelta, time
+from datetime import datetime, timedelta
 from functools import partial
-from hashlib import md5
+from uuid import uuid4
 from yaml import load as yaml_load, FullLoader as yaml_FullLoader
 from telegram.ext import Updater, CommandHandler
 
@@ -44,151 +45,175 @@ class Exit(Exception):
 
 # la classe qui va contenir la base de donnée
 class obj_bdd():
-	# fonction d'initialisation et de fermeture de la connection
-	def __init__(self, FULLPATH, tableName):
-		try:
-			# curseur et connection de la base de donnée
-			self._conn = sqlite3.connect(FULLPATH)
-			self._cursor = self._conn.cursor()
-			# vérification du nom de la table
-			self.cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-			self.tableName = tableName
-			listeTable = [k[0] for k in self.cursor.fetchall()]
-			# si la table n'existe pas, on la crée
-			if self.tableName not in listeTable:
-				self.cursor.execute(f"CREATE TABLE IF NOT EXISTS '{BDD_TABLE}' ('id' TEXT PRIMARY KEY, 'heure_debut' TEXT, 'heure_fin' TEXT)")
-			# enregistrement de la clef primaire
-			self.primaryKey = None
-			self.cursor.execute(f"PRAGMA table_info({self.tableName})")
-			for k in self.cursor.fetchall():
-				if k[-1]:
-					self.primaryKey = k[1]
-					self.primaryKeyIndex = k[0]
-					break
-			if self.primaryKey is None:
-				raise Exit(f"[!] la table '{self.tableName}' de la base de données '{FULLPATH}' n'a pas de clef primaire")
-		# le chemin spécifié ne renvois vers rien
-		except sqlite3.OperationalError:
-			raise Exit(f"[!] la base de donnée '{FULLPATH}' est introuvable") # jamais trigger car connect crée automatiquement un fichier
+    # fonction d'initialisation et de fermeture de la connection
+    def __init__(self, FULLPATH, tableName):
+        try:
+            # curseur et connection de la base de donnée
+            self._conn = sqlite3.connect(FULLPATH)
+            self._cursor = self._conn.cursor()
+            # vérification du nom de la table
+            self.cursor.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'")
+            self.tableName = tableName
+            listeTable = [k[0] for k in self.cursor.fetchall()]
+            # si la table n'existe pas, on la crée
+            if self.tableName not in listeTable:
+                self.cursor.execute(
+                    f"CREATE TABLE IF NOT EXISTS '{BDD_TABLE}' ('id' TEXT PRIMARY KEY, 'heure_debut' TEXT, 'heure_fin' TEXT)"
+                )
+            # enregistrement de la clef primaire
+            self.primaryKey = None
+            self.cursor.execute(f"PRAGMA table_info({self.tableName})")
+            for k in self.cursor.fetchall():
+                if k[-1]:
+                    self.primaryKey = k[1]
+                    self.primaryKeyIndex = k[0]
+                    break
+                if self.primaryKey is None:
+                    raise Exit(
+                        f"[!] la table '{self.tableName}' de la base de données '{FULLPATH}' n'a pas de clef primaire"
+                    )
+        # le chemin spécifié ne renvois vers rien
+        except sqlite3.OperationalError:
+            # jamais trigger car connect crée automatiquement un fichier
+            raise Exit(f"[!] la base de donnée '{FULLPATH}' est introuvable")
 
-	# interaction possible avec un 'with'
-	def __enter__(self):
-		return self
+    # interaction possible avec un 'with'
+    def __enter__(self):
+        return self
 
-	# interaction possible avec un 'with'
-	def __exit__(self, exc_type, exc_val, exc_tb):
-		self.save()
-		self.close()
+    # interaction possible avec un 'with'
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.save()
+        self.close()
 
-	# interaction entre les variables privée et les "getters"
-	@property
-	def connection(self):
-		return self._conn
-	@property
-	def cursor(self):
-		return self._cursor
+    # interaction entre les variables privée et les "getters"
+    @property
+    def connection(self):
+        return self._conn
+    @property
+    def cursor(self):
+        return self._cursor
 
-	# récupere les noms des champs de la table
-	def _namesColonnes(self):
-		self.cursor.execute(f"PRAGMA table_info({self.tableName})")
-		L = [k[1] for k in self.cursor.fetchall()]
-		return L
+    # récupere les noms des champs de la table
+    def _namesColonnes(self):
+        self.cursor.execute(f"PRAGMA table_info({self.tableName})")
+        L = [k[1] for k in self.cursor.fetchall()]
+        return L
 
-	# renvois True si l'entrée de la clef primaire est bien présente dans la table
-	def _verify(self, key, prefixe, suffixe):
-		# si prefixe et suffixe valent False, la clef doit exactement etre présente
-		if not prefixe and not suffixe:
-			self.cursor.execute(f"SELECT {self.primaryKey} FROM {self.tableName} WHERE {self.primaryKey} LIKE '{key}'")
-		# si seul prefixe vaut True, la clef doit seulement commencer pareil
-		elif prefixe and not suffixe:
-			self.cursor.execute(f"SELECT {self.primaryKey} FROM {self.tableName} WHERE {self.primaryKey} LIKE '{key}%'")
-		# si seul suffixe vaut True, la clef doit seulement finir pareil
-		elif not prefixe and suffixe:
-			self.cursor.execute(f"SELECT {self.primaryKey} FROM {self.tableName} WHERE {self.primaryKey} LIKE '%{key}'")
-		# si prefixe et suffixe valent True, la clef doit etre contenue
-		else:
-			self.cursor.execute(f"SELECT {self.primaryKey} FROM {self.tableName} WHERE {self.primaryKey} LIKE '%{key}%'")
+    # renvois True si l'entrée de la clef primaire est bien présente dans la table
+    def _verify(self, key, prefixe, suffixe):
+        # si prefixe et suffixe valent False, la clef doit exactement etre présente
+        if not prefixe and not suffixe:
+            self.cursor.execute(
+                f"SELECT {self.primaryKey} FROM {self.tableName} WHERE {self.primaryKey} LIKE '{key}'")
+        # si seul prefixe vaut True, la clef doit seulement commencer pareil
+        elif prefixe and not suffixe:
+            self.cursor.execute(
+                f"SELECT {self.primaryKey} FROM {self.tableName} WHERE {self.primaryKey} LIKE '{key}%'")
+        # si seul suffixe vaut True, la clef doit seulement finir pareil
+        elif not prefixe and suffixe:
+            self.cursor.execute(
+                f"SELECT {self.primaryKey} FROM {self.tableName} WHERE {self.primaryKey} LIKE '%{key}'")
+        # si prefixe et suffixe valent True, la clef doit etre contenue
+        else:
+            self.cursor.execute(
+                f"SELECT {self.primaryKey} FROM {self.tableName} WHERE {self.primaryKey} LIKE '%{key}%'")
 
-		# resultat
-		if self.cursor.fetchall() == []:
-			return False
-		else:
-			return True
+        # resultat
+        if self.cursor.fetchall() == []:
+            return False
+        else:
+            return True
 
-	# recuperer les infos pour une entrée de clef (primaire par défaut) donnée. Si c'est "all", renvoit la totalité des données de la table
-	def getDatas(self, key, keyname=None, order="id"):
-		if not keyname:
-			keyname = self.primaryKey
-		if key == "all":
-			self.cursor.execute(f"SELECT * FROM {self.tableName} ORDER BY {order} ASC")
-			return self.cursor.fetchall()
-		else:
-			self.cursor.execute(f"SELECT * FROM {self.tableName} WHERE {keyname} LIKE '{key}' ORDER BY {order} ASC")
-			return self.cursor.fetchone()
+    # recuperer les infos pour une entrée de clef (primaire par défaut) donnée. Si c'est "all", renvoit la totalité des données de la table
+    def getDatas(self, key, keyname=None, order="id"):
+        if not keyname:
+            keyname = self.primaryKey
+        if key == "all":
+            self.cursor.execute(
+                f"SELECT * FROM {self.tableName} ORDER BY {order} ASC")
+            return self.cursor.fetchall()
+        else:
+            self.cursor.execute(
+                f"SELECT * FROM {self.tableName} WHERE {keyname} LIKE '{key}' ORDER BY {order} ASC")
+            return self.cursor.fetchone()
 
-	# ajoute une nouvelle entrée dans la base de données
-	def create(self, valeurs, lower=True):
-		nomsColonnes = self._namesColonnes()
-		if len(valeurs) != len(nomsColonnes):
-			raise Exit(f"[!] les arguments {valeurs} ne correspondent pas au colonnes {nomsColonnes}")
-		# on vérifie que l'entrée n'existe pas déja
-		if not self._verify(valeurs[self.primaryKeyIndex], False, False):
-			text = f"INSERT INTO {self.tableName}("
-			for k in nomsColonnes:
-				text += f"{k},"
-			text = f"{text[:-1]}) VALUES("
-			for k in valeurs:
-				if k == "NULL":
-					text += "NULL,"
-				elif lower:
-					text += f"'{str(k).lower()}',"
-				else:
-					text += f"'{k}',"
-			text = f"{text[:-1]})"
-			try:
-				self.cursor.execute(text)
-			except sqlite3.OperationalError as e:
-				raise Exit(f"[!] erreur dans l'opération : {e}")
-		else:
-			raise Exit(f"[!] {self.primaryKey} = {valeurs[self.primaryKeyIndex]}, cette entrée existe déjà")
+    # ajoute une nouvelle entrée dans la base de données
+    def create(self, valeurs, lower=True):
+        nomsColonnes = self._namesColonnes()
+        if len(valeurs) != len(nomsColonnes):
+            raise Exit(
+                f"[!] les arguments {valeurs} ne correspondent pas au colonnes {nomsColonnes}")
+        # on vérifie que l'entrée n'existe pas déja
+        if not self._verify(valeurs[self.primaryKeyIndex], False, False):
+            text = f"INSERT INTO {self.tableName}("
+            for k in nomsColonnes:
+                text += f"{k},"
+            text = f"{text[:-1]}) VALUES("
+            for k in valeurs:
+                if k == "NULL":
+                    text += "NULL,"
+                elif lower:
+                    text += f"'{str(k).lower()}',"
+                else:
+                    text += f"'{k}',"
+            text = f"{text[:-1]})"
+            try:
+                self.cursor.execute(text)
+            except sqlite3.OperationalError as e:
+                raise Exit(f"[!] erreur dans l'opération : {e}")
+        else:
+            raise Exit(f"[!] {self.primaryKey} = {valeurs[self.primaryKeyIndex]}, cette entrée existe déjà")
 
-	# supprime une entrée en la selectionnant avec la clef primaire
-	def delete(self, key):
-		# on vérifie que l'entrée existe
-		if self._verify(key, False, False):
-			self.cursor.execute(f"DELETE FROM {self.tableName} WHERE {self.primaryKey}='{key}'")
-		else:
-			raise Exit(f"[!] {self.primaryKey} = {key}, pas d'entrée corespondante")
+    # ajoute une nouvelle entrée avec une clef primaire aléatoire
+    def create_random_pk(self, valeurs, lower=True):
+        uu = uuid4()
+        while self._verify(uu, False, False):
+            uu = uuid4()
+        self.create([uu]+valeurs, lower)
 
-	# modifie une entrée en la selectionnant avec la clef primaire (dans le champ valeurs)
-	def modify(self, valeurs, lower):
-		nomsColonnes = self._namesColonnes()
-		if len(valeurs) != len(nomsColonnes):
-			raise Exit(f"[!] les arguments {valeurs} ne correspondent pas au colonnes {nomsColonnes}")
-		# on vérifie que l'entrée existe
-		if self._verify(valeurs[self.primaryKeyIndex], False, False):
-			text = f"UPDATE {self.tableName} SET"
-			for k in range(len(nomsColonnes)):
-				if lower:
-					text += f" {nomsColonnes[k]}='{str(valeurs[k]).lower()}',"
-				else:
-					text += f" {nomsColonnes[k]}='{valeurs[k]}',"
-			text = f"{text[:-1]} WHERE {self.primaryKey} = '{valeurs[self.primaryKeyIndex]}'"
-			try:
-				self.cursor.execute(text)
-			except sqlite3.OperationalError as e:
-				raise Exit(f"[!] erreur dans l'opération : {e}")
-		else:
-			raise Exit(f"[!] {self.primaryKey} = {valeurs[self.primaryKeyIndex]}, pas d'entrée correspondante")
+    # supprime une entrée en la selectionnant avec la clef primaire
+    def delete(self, key):
+        # on vérifie que l'entrée existe
+        if self._verify(key, False, False):
+            self.cursor.execute(
+                f"DELETE FROM {self.tableName} WHERE {self.primaryKey}='{key}'")
+        else:
+            raise Exit(
+                f"[!] {self.primaryKey} = {key}, pas d'entrée corespondante")
 
-	# sauvegarde la base de donnée
-	def save(self):
-		self.connection.commit()
+    # modifie une entrée en la selectionnant avec la clef primaire (dans le champ valeurs)
+    def modify(self, valeurs, lower):
+        nomsColonnes = self._namesColonnes()
+        if len(valeurs) != len(nomsColonnes):
+            raise Exit(
+                f"[!] les arguments {valeurs} ne correspondent pas au colonnes {nomsColonnes}")
+        # on vérifie que l'entrée existe
+        if self._verify(valeurs[self.primaryKeyIndex], False, False):
+            text = f"UPDATE {self.tableName} SET"
+            for k in range(len(nomsColonnes)):
+                if lower:
+                    text += f" {nomsColonnes[k]}='{str(valeurs[k]).lower()}',"
+                else:
+                    text += f" {nomsColonnes[k]}='{valeurs[k]}',"
+            text = f"{text[:-1]} WHERE {self.primaryKey} = '{valeurs[self.primaryKeyIndex]}'"
+            try:
+                self.cursor.execute(text)
+            except sqlite3.OperationalError as e:
+                raise Exit(f"[!] erreur dans l'opération : {e}")
+        else:
+            raise Exit(
+                f"[!] {self.primaryKey} = {valeurs[self.primaryKeyIndex]}, pas d'entrée correspondante")
 
-	# ferme la base de donnée
-	def close(self):
-		self.cursor.close()
-		self.connection.close()
+    # sauvegarde la base de donnée
+    def save(self):
+        self.connection.commit()
+
+    # ferme la base de donnée
+    def close(self):
+        self.cursor.close()
+        self.connection.close()
 
 
 ## ~~~~~~~~~~~~~~~~~~~~~~~~~~    HARDWARE RASPBERRY     ~~~~~~~~~~~~~~~~~~~~~~~~~~ ##
@@ -197,8 +222,10 @@ class obj_bdd():
 def is_raspberrypi():
     try:
         with io.open('/sys/firmware/devicetree/base/model', 'r') as m:
-            if 'raspberry pi' in m.read().lower(): return True
-    except Exception: pass
+            if 'raspberry pi' in m.read().lower():
+                return True
+    except Exception:
+        pass
     return False
 
 # envoit à tous les utilisateurs actifs un message
@@ -239,6 +266,7 @@ def job_detection_ir(context, test_instant_state=None):
     # - 3 : current_state
     # - 4 : time_rappel
     # - 5 : time_latence
+    # - 6 : bdd_path, bdd_table_name
 
     # test_instant_state est une variable de test, pour changer la valeur de instant_state
     # instant_state = 1 -> le capteur détecte une présence
@@ -292,14 +320,13 @@ def job_detection_ir(context, test_instant_state=None):
                 send_alerts(
                     context.bot.send_message,
                     context.job.context[1],
-                    f"fin de l'alerte",
+                    "fin de l'alerte",
                     now,
                     context.job.context[2]
                 )
                 # sauvegarde de l'alerte
-                with obj_bdd(BDD_PATH, BDD_TABLE) as temp_bdd:
-    				temp_bdd.create([
-                        md5(f"{context.job.context[3][0]}_{context.job.context[3][1]}_{context.job.context[3][2]}"),
+                with obj_bdd(context.job.context[6][0], context.job.context[6][1]) as temp_bdd:
+                    temp_bdd.create_random_pk([
                         context.job.context[3][0],
                         context.job.context[3][2],
                     ])
@@ -325,9 +352,17 @@ def load_horaires_alertes():
     return data
 
 # nettoie la base de donnée
-def job_netttoyage_bdd(context):
-    with obj_bdd(BDD_PATH, BDD_TABLE) as temp_bdd:
-        data = temp_bdd.getDatas()
+def job_nettoyage_bdd(context):
+    temp_time = datetime.now()
+    l = []
+    with obj_bdd(context.job.context[6][0], context.job.context[6][1]) as temp_bdd:
+        data = temp_bdd.getDatas("all")
+        for k in data:
+            if temp_time - datetime.fromisoformat(k[1]) > timedelta(days=7):
+                temp_bdd.delete(k[0])
+                l.append(k)
+    # renvoit l'action réalisé (pour les tests)
+    return l
 
 ## ~~~~~~~~~~~~~~~~~~~~~~~~~~       COMMANDES BOT       ~~~~~~~~~~~~~~~~~~~~~~~~~~ ##
 
@@ -411,7 +446,7 @@ def reload(update, context, auth_acc=[], acti_acc=[]):
         first=3,
         interval=TIMEOUT,
         name="_job_detection_ir",
-        context=[auth_acc, acti_acc, hora_ale, False, TIMERAPPEL, TIMELATENCE],
+        context=[auth_acc, acti_acc, hora_ale, False, TIMERAPPEL, TIMELATENCE, (BDD_PATH, BDD_TABLE)],
     )
 
 # affiche l'aide
@@ -492,12 +527,16 @@ def main():
         first=0,
         interval=TIMEOUT,
         name="_job_detection_ir",
-        context=[authorized_accounts, active_accounts, horaires_alertes, current_state, TIMERAPPEL, TIMELATENCE],
+        context=[authorized_accounts, active_accounts,
+                 horaires_alertes, current_state, TIMERAPPEL, TIMELATENCE, 
+                 (BDD_PATH, BDD_TABLE)
+                ],
     )
     # le nettoyage de la base de donnée
-    bot.job_queue.run_daily(
-        job_netttoyage_bdd,
+    bot.job_queue.run_once(
+        job_nettoyage_bdd,
         name="_job_nettoyage_bdd",
+        when=0,
     )
 
     ##~~~ ajout des gestionnaires de commande par ordre d'importance
