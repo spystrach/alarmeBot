@@ -1,0 +1,16 @@
+## ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ##
+##																				                          ##
+##  ----  --   VALEURS PAR DEFAUTS DES BASES DE DONNEES   --  ----  ##
+##																				                          ##
+## ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ##
+
+## fichier yml de configuation qui permet au bot telegram de savoir si l'utilisateur
+## est autorisé à converser avec lui.
+
+# le fichier est une liste des nom d'utilisateurs authorisés sous la forme :
+# - nom_utilisateur_1
+# - nom_utilisateur_2
+
+- C_margoulin
+- bibiou
+- tructruc

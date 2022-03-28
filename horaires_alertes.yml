@@ -1,0 +1,21 @@
+## ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ##
+##																				                          ##
+##  ----  --   VALEURS PAR DEFAUTS DES BASES DE DONNEES   --  ----  ##
+##																				                          ##
+## ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ##
+
+## fichier yml de configuation qui permet au bot telegram de savoir si l'utilisateur
+## est autorisé à converser avec lui.
+
+# le fichier est une liste de l'heure de début et de fin des notifications :
+
+# exemples :
+# alertes envoyée entre 8h 00 et 20h 00
+# - 08:00
+# - 20:00
+# alertes envoyées entre 21h 00 et 7h 00
+# - 21:00
+# - 07:00
+
+- '00:00'
+- '00:00'

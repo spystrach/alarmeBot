@@ -1,3 +1,10 @@
+# la base de donnée
+*.db
+
+# les fichiers de test
+test_*.py
+input.txt
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
