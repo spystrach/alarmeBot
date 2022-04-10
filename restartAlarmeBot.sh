@@ -1,7 +1,8 @@
+#!/bin/sh
 # RECHARGE LE BOT
 
 # navigue dans le bon dossier
-cd && cd /home/`whoami`/Documents/alarmeBot
+cd && cd "/home/$(whoami)/Documents/alarmeBot" || exit
 
 # stopppe le conteneur
 docker stop alarme_bot_1
@@ -19,4 +20,4 @@ docker build -t alarme_bot .
 docker run -d --name alarme_bot_1 alarme_bot
 
 # fin
-cd
+cd || exit

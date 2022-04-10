@@ -18,18 +18,18 @@ import datetime
 from uuid import uuid4
 
 # fonctions a tester
-from alarmeBot import send_alerts, job_detection_ir, obj_bdd, job_nettoyage_bdd, Exit
+from alarmeBot import send_alerts, job_detection_ir, obj_bdd, job_nettoyage_bdd, gen_histogramme_from_bdd, Exit
 
 # dossiers du projet
 BASEPATH = os.path.realpath(os.path.dirname(sys.argv[0]))
 
 # base de donnée de test
-TEST_DB_PATH = os.path.join(BASEPATH, "test_data.db")
-TEST_DB_NAME = "alertes"
+BDD_PATH = os.path.join(BASEPATH, "test_data.db")
+BDD_NAME = "alertes"
 
 # simule un CallbackContext
 class MockContext:
-    def __init__(self, test_db_path, test_db_name):
+    def __init__(self, BDD_PATH, BDD_NAME):
         # partie bot
         class MockBot:
             # MockUp de la fonction context.bot.send_message
@@ -46,7 +46,6 @@ class MockContext:
                 False,  # current_state
                 datetime.timedelta(minutes=2),  # time_rappel
                 datetime.timedelta(minutes=5),  # time_latence
-                (test_db_path, test_db_name),
             ]
         self.job = MockJob()
 
@@ -141,15 +140,15 @@ class TestDetectionIr(unittest.TestCase):
     # initialisation de la classe de test
     @classmethod
     def setUpClass(self):
-        self.mock_context = MockContext(TEST_DB_PATH, TEST_DB_NAME)
+        self.mock_context = MockContext(BDD_PATH, BDD_NAME)
         # temp présent du test jour/mois/année, 17h 44
         self.now = datetime.datetime.now()
-        with obj_bdd(TEST_DB_PATH, TEST_DB_NAME) as temp_bdd:
+        with obj_bdd(BDD_PATH, BDD_NAME) as temp_bdd:
             pass
     # suppression de la base de test à la fin de la classe
     @classmethod
     def tearDownClass(self):
-        os.remove(TEST_DB_PATH)
+        os.remove(BDD_PATH)
     # pas d'alerte courante ni instantané
     def test_instant_False_current_False(self):
         self.assertIs(
@@ -327,17 +326,17 @@ class TestNettoyageBdd(unittest.TestCase):
     # initialisation de la classe de test
     @classmethod
     def setUpClass(self):
-        self.mock_context = MockContext(TEST_DB_PATH, TEST_DB_NAME)
-        with obj_bdd(TEST_DB_PATH, TEST_DB_NAME) as temp_bdd:
+        self.mock_context = MockContext(BDD_PATH, BDD_NAME)
+        with obj_bdd(BDD_PATH, BDD_NAME) as temp_bdd:
             pass
     # suppression de la base de test à la fin de la classe
     @classmethod
     def tearDownClass(self):
-        os.remove(TEST_DB_PATH)
+        os.remove(BDD_PATH)
     # initialisation pour chaque test
     def setUp(self):
         temp_time = datetime.datetime.now()
-        with obj_bdd(TEST_DB_PATH, TEST_DB_NAME) as temp_bdd:
+        with obj_bdd(BDD_PATH, BDD_NAME) as temp_bdd:
             t = temp_time - datetime.timedelta(days=7, minutes=5)
             temp_bdd.create(["007", t, t+datetime.timedelta(minutes=5)])
             t = temp_time - datetime.timedelta(days=7) + datetime.timedelta(minutes=5)
@@ -347,7 +346,7 @@ class TestNettoyageBdd(unittest.TestCase):
     # supprime les entrées vieilles de plus d'une semaine
     def test_delete_old_entries(self):
         deleted = job_nettoyage_bdd(self.mock_context)
-        with obj_bdd(TEST_DB_PATH, TEST_DB_NAME) as temp_bdd:
+        with obj_bdd(BDD_PATH, BDD_NAME) as temp_bdd:
             data = temp_bdd.getDatas("all")
         self.assertEqual(
             len(data),
@@ -357,5 +356,40 @@ class TestNettoyageBdd(unittest.TestCase):
             deleted[0][0],
             "007",
         )
+
+# tests de la création du diagramme récapitulatif
+class TestRecapitulatifDiagram(unittest.TestCase):
+    # initialisation de la classe de test
+    @classmethod
+    def setUpClass(self):
+        with obj_bdd(BDD_PATH, BDD_NAME) as temp_bdd:
+            pass
+    # suppression de la base de test à la fin de la classe
+    @classmethod
+    def tearDownClass(self):
+        os.remove(BDD_PATH)
+
+    # affiche les quelques entrées
+    def test_recapitulatif(self):
+        temp_time = datetime.datetime.now()
+        temp_path = os.path.join(BASEPATH, "test_db_recap.png")
+        with obj_bdd(BDD_PATH, BDD_NAME) as temp_bdd:
+            t = temp_time - datetime.timedelta(hours=7, minutes=5)
+            temp_bdd.create(["007", t, t+datetime.timedelta(minutes=5)])
+            t = temp_time - datetime.timedelta(hours=7, minutes=10)
+            temp_bdd.create(["007", t, t+datetime.timedelta(minutes=5)])
+            t = temp_time - datetime.timedelta(hours=2, minutes=5)
+            temp_bdd.create(["007", t, t+datetime.timedelta(minutes=5)])
+            t = temp_time - datetime.timedelta(hours=2, minutes=10)
+            temp_bdd.create(["007", t, t+datetime.timedelta(minutes=5)])
+            t = temp_time - datetime.timedelta(hours=2, minutes=15)
+            temp_bdd.create(["007", t, t+datetime.timedelta(minutes=5)])
+        # création du graphique
+        gen_histogramme_from_bdd(temp_path)
+        x = input("\n?")
+        #os.remove(temp_path)
+
+
+
 
 # fin

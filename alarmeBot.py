@@ -20,6 +20,7 @@ from functools import partial
 from uuid import uuid4
 from yaml import load as yaml_load, FullLoader as yaml_FullLoader
 from telegram.ext import Updater, CommandHandler
+import matplotlib.pyplot as plt
 
 # le temps de latence avant de re-vérifier l'état du détecteur IR
 TIMEOUT = timedelta(seconds=3)
@@ -218,7 +219,7 @@ class obj_bdd():
 
 ## ~~~~~~~~~~~~~~~~~~~~~~~~~~    HARDWARE RASPBERRY     ~~~~~~~~~~~~~~~~~~~~~~~~~~ ##
 
-# renvoit True si la plateformee st un raspberry pi
+# renvoit True si la plateformee est un raspberry pi
 def is_raspberrypi():
     try:
         with io.open('/sys/firmware/devicetree/base/model', 'r') as m:
@@ -266,7 +267,6 @@ def job_detection_ir(context, test_instant_state=None):
     # - 3 : current_state
     # - 4 : time_rappel
     # - 5 : time_latence
-    # - 6 : bdd_path, bdd_table_name
 
     # test_instant_state est une variable de test, pour changer la valeur de instant_state
     # instant_state = 1 -> le capteur détecte une présence
@@ -325,7 +325,7 @@ def job_detection_ir(context, test_instant_state=None):
                     context.job.context[2]
                 )
                 # sauvegarde de l'alerte
-                with obj_bdd(context.job.context[6][0], context.job.context[6][1]) as temp_bdd:
+                with obj_bdd(BDD_PATH, BDD_TABLE) as temp_bdd:
                     temp_bdd.create_random_pk([
                         context.job.context[3][0],
                         context.job.context[3][2],
@@ -355,14 +355,82 @@ def load_horaires_alertes():
 def job_nettoyage_bdd(context):
     temp_time = datetime.now()
     l = []
-    with obj_bdd(context.job.context[6][0], context.job.context[6][1]) as temp_bdd:
+    with obj_bdd(BDD_PATH, BDD_TABLE) as temp_bdd:
         data = temp_bdd.getDatas("all")
         for k in data:
             if temp_time - datetime.fromisoformat(k[1]) > timedelta(days=7):
+                print(f"deleted {k}")
                 temp_bdd.delete(k[0])
                 l.append(k)
     # renvoit l'action réalisé (pour les tests)
     return l
+
+# met en forme les données pour construire un histogramme
+def gen_histogramme_from_bdd(temp_save_path):
+    # dictionnaire principal de toutes les heures de la journee
+    dictHoraires = {}
+    # creation de tous les dictionnaires d'heures
+    for k in range(24):
+        dictHoraires["h"+str(k)] = {}
+        for i in range(4):
+            dictHoraires["h"+str(k)][i] = 0
+    # parcourt la base de donnée
+    buffer = []
+    with obj_bdd(BDD_PATH, BDD_TABLE) as temp_bdd:
+        data = temp_bdd.getDatas("all")
+
+    # on importe tous les elements du buffer dans le dictionnaire dictHoraires
+    for i in buffer:
+        # initialisation des increment avec les heures et minutes de debut
+        incrementHeure = int(i[0][:2])
+        incrementMinute = int(i[0][3:])
+
+        while incrementHeure <= int(i[1][:2]) and incrementMinute <= int(i[1][3:]):
+            # on incremente les valeurs du dico si la valeur en cours est dans le 1/4h correspondant
+            if incrementMinute < 15:
+                dictHoraires["h"+str(incrementHeure)][0] += 1
+            elif incrementMinute < 30:
+                dictHoraires["h"+str(incrementHeure)][1] += 1
+            elif incrementMinute < 45:
+                dictHoraires["h"+str(incrementHeure)][2] += 1
+            else:
+                dictHoraires["h"+str(incrementHeure)][3] += 1
+            # on passe à la minute suivante
+            if incrementMinute < 59:
+                incrementMinute += 1
+            else:
+                incrementMinute = 0
+                incrementHeure += 1
+
+    # les listes pour tracer le diagramme
+    Abcisse = []
+    Valeur = []
+    # remplissage des listes de tracage
+    for k in range(24):
+        for i in range(4):
+            Abcisse.append(k + float(i)/4)
+            Valeur.append(dictHoraires["h"+str(k)][i])
+
+    # dessin du graphe
+    for h in range(0,96,4):
+        #si nombre pair, on trace en bleu
+        if Abcisse[h]%2 == 0:
+            plt.bar(Abcisse[h:h+4], Valeur[h:h+4], width=0.25, color="r", align='edge')
+        #si nombre impair, on trace en bleu
+        else:
+            plt.bar(Abcisse[h:h+4], Valeur[h:h+4], width=0.25, color="b", align='edge')
+
+    # les titres des axes, legendes, etc
+    plt.xlabel("heures")
+    plt.xlim(0,24)
+    plt.xticks([k for k in range(25)],[str(k) for k in range(25)])
+    plt.ylabel("activite en minute")
+    plt.ylim(0,15)
+    plt.yticks([k for k in range(16)],[str(k) for k in range(16)])
+    plt.title("bilan des détection par alarmeBot")
+    # enregistre l'image
+    plt.savefig(temp_save_path)
+    plt.close()
 
 ## ~~~~~~~~~~~~~~~~~~~~~~~~~~       COMMANDES BOT       ~~~~~~~~~~~~~~~~~~~~~~~~~~ ##
 
@@ -425,10 +493,13 @@ def photo(update, context, auth_acc=[], acti_acc=[]):
 # fonction lancée par la commande '/recap'
 @verify_user
 def recap(update, context, auth_acc=[], acti_acc=[]):
+    temp_path = os.path.join(BASEPATH, "temp_fig.png")
     # renvoit le récapitulatif
     update.message.reply_text("récapitulatif des dernières 24h")
+    gen_histogramme_from_bdd(temp_path)
     # renvoit l'image
-    pass
+    context.bot.send_photo(chat_id=update.effective_user.id, photo=open(temp_path, "rb"))
+    os.remove(os.path.join(temp_path))
 
 # fonction lancée par la commande '/reload'
 @verify_user
@@ -446,7 +517,7 @@ def reload(update, context, auth_acc=[], acti_acc=[]):
         first=3,
         interval=TIMEOUT,
         name="_job_detection_ir",
-        context=[auth_acc, acti_acc, hora_ale, False, TIMERAPPEL, TIMELATENCE, (BDD_PATH, BDD_TABLE)],
+        context=[auth_acc, acti_acc, hora_ale, False, TIMERAPPEL, TIMELATENCE],
     )
 
 # affiche l'aide
@@ -528,8 +599,7 @@ def main():
         interval=TIMEOUT,
         name="_job_detection_ir",
         context=[authorized_accounts, active_accounts,
-                 horaires_alertes, current_state, TIMERAPPEL, TIMELATENCE, 
-                 (BDD_PATH, BDD_TABLE)
+                 horaires_alertes, current_state, TIMERAPPEL, TIMELATENCE,
                 ],
     )
     # le nettoyage de la base de donnée
@@ -537,6 +607,9 @@ def main():
         job_nettoyage_bdd,
         name="_job_nettoyage_bdd",
         when=0,
+        context=[authorized_accounts, active_accounts,
+                 horaires_alertes, current_state, TIMERAPPEL, TIMELATENCE,
+                ],
     )
 
     ##~~~ ajout des gestionnaires de commande par ordre d'importance
